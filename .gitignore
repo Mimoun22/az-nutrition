@@ -15,3 +15,5 @@ products2.png
 .DS_Store
 Thumbs.db
 *.swp
+
+.vercel

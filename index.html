@@ -346,7 +346,8 @@
       <p class="eyebrow"><span class="eyebrow-line"></span> THE FORMULA</p>
       <h2 class="promo-title">RECOVER.<br>REFUEL.<br><span class="accent">GO AGAIN.</span></h2>
       <p class="lead">Support your training with advanced recovery formulas —
-        and take <strong>10% off</strong> your first 3 orders with code
+        and <strong>members save 10% on every order</strong>. Create a free account
+        to unlock your price, save products and track orders with code
         <span class="code">AZ10</span>.</p>
       <a href="#products" class="btn btn-primary">SHOP THE COLLECTION <span class="arr">↗</span></a>
     </div>
@@ -505,27 +506,71 @@
     <p class="cart-empty" id="cartEmpty">Your bag is empty. Time to fuel up. 🏋️</p>
   </div>
   <div class="cart-foot">
-    <div class="cart-total"><span>SUBTOTAL</span><strong id="cartTotal">$0.00</strong></div>
-    <p class="cart-note">Free shipping on orders over $75</p>
-    <button class="btn btn-primary btn-block" id="checkoutBtn">CHECKOUT <span class="arr">↗</span></button>
+    <div class="cart-line"><span>SUBTOTAL</span><strong id="cartSub">$0.00</strong></div>
+    <div class="cart-line saving" id="cartSaveRow" hidden><span>MEMBER SAVING (10%)</span><strong id="cartSave">−$0.00</strong></div>
+    <div class="cart-total"><span>TOTAL</span><strong id="cartTotal">$0.00</strong></div>
+    <p class="cart-note" id="cartNote">Free shipping on orders over $75</p>
+    <button class="btn btn-primary btn-block" id="checkoutBtn">SIGN IN TO CHECKOUT <span class="arr">↗</span></button>
   </div>
 </aside>
 
 <!-- ============ ACCOUNT MODAL ============ -->
-<div class="account-modal" id="accountModal" role="dialog" aria-modal="true" aria-label="Account sign in">
-  <div class="account-box">
-    <button class="account-close" id="accountClose" aria-label="Close">✕</button>
-    <p class="eyebrow"><span class="eyebrow-line"></span> MEMBER ACCESS</p>
-    <h3>WELCOME BACK.</h3>
-    <p>Sign in to track your orders, save your favourites and get member-only deals.</p>
-    <form id="accountForm">
-      <label for="accEmail">EMAIL ADDRESS</label>
-      <input type="email" id="accEmail" placeholder="you@example.com" required>
-      <label for="accPass">PASSWORD</label>
-      <input type="password" id="accPass" placeholder="••••••••" required minlength="4">
-      <button type="submit" class="btn btn-primary">SIGN IN <span class="arr">↗</span></button>
-    </form>
-    <p class="account-foot">New here? <b id="accSwitch">Create an account</b></p>
+<div class="account-modal" id="accountModal" role="dialog" aria-modal="true" aria-label="My account">
+  <div class="account-box wide">
+
+    <!-- AUTH VIEW -->
+    <div id="authView">
+      <button class="account-close" id="accountClose" aria-label="Close">✕</button>
+      <p class="eyebrow"><span class="eyebrow-line"></span> AZ MEMBER ACCESS</p>
+      <h3 id="authTitle">WELCOME BACK.</h3>
+      <p id="authIntro">Sign in to track orders, save products and unlock member pricing.</p>
+      <p class="form-error" id="accError" hidden></p>
+      <form id="accountForm" novalidate>
+        <div id="nameField" hidden>
+          <label for="accName">FULL NAME</label>
+          <input type="text" id="accName" placeholder="Your name" autocomplete="name">
+        </div>
+        <label for="accEmail">EMAIL ADDRESS</label>
+        <input type="email" id="accEmail" placeholder="you@example.com" autocomplete="email">
+        <label for="accPass">PASSWORD</label>
+        <input type="password" id="accPass" placeholder="Min. 8 characters, 1 letter + 1 number" autocomplete="current-password">
+        <div id="confirmField" hidden>
+          <label for="accConfirm">CONFIRM PASSWORD</label>
+          <input type="password" id="accConfirm" placeholder="Repeat your password" autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-primary" id="authSubmit">SIGN IN <span class="arr">↗</span></button>
+      </form>
+      <p class="account-foot">New here? <b id="accSwitch">Create an account</b></p>
+    </div>
+
+    <!-- DASHBOARD VIEW -->
+    <div id="dashView" hidden>
+      <button class="account-close" id="dashClose" aria-label="Close">✕</button>
+      <p class="eyebrow"><span class="eyebrow-line"></span> MY ACCOUNT</p>
+      <div class="acc-profile">
+        <div class="acc-avatar" id="accAvatar">AZ</div>
+        <div>
+          <h3 id="accNameOut">MEMBER</h3>
+          <p id="accEmailOut">member@az.com</p>
+        </div>
+        <span class="acc-badge">AZ MEMBER</span>
+      </div>
+      <div class="acc-stats">
+        <div><strong id="accOrdersCount">0</strong><span>ORDERS</span></div>
+        <div><strong id="accSavedCount">0</strong><span>SAVED ITEMS</span></div>
+        <div><strong>10%</strong><span>MEMBER OFF</span></div>
+      </div>
+      <div class="acc-section">
+        <h4>MY ORDERS</h4>
+        <div class="acc-list" id="accOrdersList"><p class="acc-empty">No orders yet — your first one is waiting.</p></div>
+      </div>
+      <div class="acc-section">
+        <h4>SAVED PRODUCTS</h4>
+        <div class="acc-list" id="accSavedList"><p class="acc-empty">Tap the ♡ on a product to save it here.</p></div>
+      </div>
+      <button class="btn btn-ghost btn-block" id="logoutBtn">SIGN OUT</button>
+    </div>
+
   </div>
 </div>
 
