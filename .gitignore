@@ -1,0 +1,17 @@
+# Unused source/inspiration assets — kept locally, not deployed
+Pc_view.jpg
+Mobile_view.jpg
+The Owner.png
+product1.png
+product3.png
+product4.png
+product5.png
+product6.png
+product7.png
+product8.png
+products2.png
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
