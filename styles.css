@@ -759,12 +759,9 @@ a:hover .arr,button:hover .arr{transform:translate(3px,-3px)}
 .account-box .btn{width:100%;justify-content:center}
 .account-foot{margin-top:20px;text-align:center;font-size:.78rem;color:var(--muted)}
 .account-foot b{color:var(--blue-2);cursor:pointer}
-.demo-hint{
-  margin-top:12px;padding-top:12px;border-top:1px solid var(--line);
-  text-align:center;font-size:.72rem;color:var(--muted);
+.form-error.ok{
+  background:rgba(18,183,106,.12);border-color:rgba(18,183,106,.5);color:#7ee2b8;
 }
-.demo-hint b{color:var(--blue-2);cursor:pointer}
-.demo-hint b:hover{text-decoration:underline}
 .account-box.wide{width:min(520px,100%);max-height:min(88vh,780px);overflow-y:auto}
 .form-error{
   background:rgba(255,71,87,.12);border:1px solid rgba(255,71,87,.45);

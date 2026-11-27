@@ -85,48 +85,85 @@
   }
 
   /* ============================================================
-     ACCOUNTS  (localStorage — demo, no server)
-     Stored: name, email, password hash, saved[], orders[]
+     SUPABASE AUTH — real accounts that work on every device
+     Per-user data (saved items, orders) lives in auth metadata.
      ============================================================ */
-  const USERS_KEY = 'az_users_v1';
-  const SESSION_KEY = 'az_session_v1';
+  const SB_URL = 'https://oclxrheghqarandewokw.supabase.co';
+  const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jbHhyaGVnaHFhcmFuZGV3b2t3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU3MzE5MTAsImV4cCI6MjExMTMwNzkxMH0.bIh_eg0YZcfYvk_ehuJ6IMB527uJKS8tHRfkd1myOEs';
+  const SESSION_KEY = 'az_sb_session_v1';
   const money = n => '$' + n.toFixed(2);
-  const hash = s => {
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
-    return h.toString(16);
-  };
 
-  function loadUsers() {
-    try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; }
-    catch { return []; }
+  async function sb(path, { method = 'GET', body, token } = {}) {
+    const headers = {
+      apikey: SB_KEY,
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+    try {
+      const res = await fetch(SB_URL + path, {
+        method, headers, body: body ? JSON.stringify(body) : undefined
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data.msg || data.message || data.error_description ||
+          data.error?.message || `Request failed (${res.status})`;
+        return { error: msg };
+      }
+      return { data };
+    } catch {
+      return { error: 'Cannot reach the server. Check your connection.' };
+    }
   }
-  let users = loadUsers();
-  let sessionEmail = localStorage.getItem(SESSION_KEY) || null;
-  const currentUser = () => users.find(u => u.email === sessionEmail) || null;
-  const persist = () => {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    if (sessionEmail) localStorage.setItem(SESSION_KEY, sessionEmail);
-    else localStorage.removeItem(SESSION_KEY);
-  };
 
-  /* Universal shared demo account — works on every device.
-     Accounts created by visitors stay on their own device (no server). */
-  const DEMO_EMAIL = 'demo@aznutrition.com';
-  const DEMO_PASS = 'AZdemo123';
-  if (!users.some(u => u.email === DEMO_EMAIL)) {
-    users.push({
-      name: 'AZ Demo Member', email: DEMO_EMAIL, pass: hash(DEMO_PASS),
-      saved: ['p1', 'p4'],
-      orders: [{
-        id: 'AZ-DEMO001', date: '12 Nov 2026', items: 2, total: 62.13,
-        products: [
-          { id: 'p1', name: 'Micronised Creatine Monohydrate 634g', price: 34.99, img: 'images/creatine.png', qty: 1 },
-          { id: 'p4', name: 'Superset Pre-Workout — Blue Freeze', price: 36.99, img: 'images/superset.webp', qty: 1 }
-        ]
-      }]
+  function loadSession() {
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY)) || null; }
+    catch { return null; }
+  }
+  function saveSession(session) {
+    if (!session?.access_token) { localStorage.removeItem(SESSION_KEY); sbSession = null; return; }
+    sbSession = {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: Date.now() + (session.expires_in || 3600) * 1000,
+      user: session.user
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(sbSession));
+  }
+  let sbSession = loadSession();
+
+  /* normalised view of the signed-in user */
+  function currentUser() {
+    if (!sbSession?.user) return null;
+    const m = sbSession.user.user_metadata || {};
+    return {
+      name: m.name || sbSession.user.email.split('@')[0],
+      email: sbSession.user.email,
+      saved: Array.isArray(m.saved) ? m.saved : [],
+      orders: Array.isArray(m.orders) ? m.orders : []
+    };
+  }
+
+  /* persist saved/orders into this user's Supabase metadata */
+  async function updateProfile(patch) {
+    if (!sbSession) return false;
+    const m = sbSession.user.user_metadata || {};
+    const data = { ...m, ...patch };
+    const { data: user, error } = await sb('/auth/v1/user', {
+      method: 'PUT', token: sbSession.access_token, body: { data }
     });
-    persist();
+    if (error) { showToast(error); return false; }
+    sbSession.user = user;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(sbSession));
+    return true;
+  }
+
+  async function refreshSession() {
+    if (!sbSession?.refresh_token) return;
+    const { data, error } = await sb('/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST', body: { refresh_token: sbSession.refresh_token }
+    });
+    if (error) saveSession(null);
+    else saveSession(data);
   }
 
   /* ---------- cart ---------- */
@@ -236,7 +273,7 @@
   function closeAccount() {
     accModal.classList.remove('open');
     document.body.style.overflow = '';
-    $('#authIntro').textContent = 'Sign in to track orders, save products and unlock member pricing.';
+    if (!currentUser()) $('#authIntro').textContent = 'Sign in to track orders, save products and unlock member pricing.';
   }
   $('#accountBtn').addEventListener('click', () => openAccount());
   $('#accountClose').addEventListener('click', closeAccount);
@@ -263,59 +300,87 @@
   }
   $('#accSwitch').addEventListener('click', () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin'));
 
-  $('#useDemo').addEventListener('click', () => {
-    if (authMode !== 'signin') setAuthMode('signin');
-    clearErrors();
-    $('#accEmail').value = DEMO_EMAIL;
-    $('#accPass').value = DEMO_PASS;
-    $('#accountForm').dispatchEvent(new Event('submit', { cancelable: true }));
-  });
-
   function clearErrors() {
-    $('#accError').hidden = true;
-    $('#accError').textContent = '';
+    const el = $('#accError');
+    el.textContent = '';
+    el.hidden = true;
+    el.classList.remove('ok');
     $$('.account-box input').forEach(i => i.classList.remove('invalid'));
   }
   function fail(msg, field) {
     const el = $('#accError');
     el.textContent = msg;
     el.hidden = false;
+    el.classList.remove('ok');
     if (field) { $(field).classList.add('invalid'); $(field).focus(); }
   }
+  function info(msg) {
+    const el = $('#accError');
+    el.textContent = msg;
+    el.hidden = false;
+    el.classList.add('ok');
+  }
 
-  $('#accountForm').addEventListener('submit', e => {
+  function friendlyError(err) {
+    const e = (err || '').toLowerCase();
+    if (e.includes('invalid login') || e.includes('credentials')) return 'Incorrect email or password. Try again.';
+    if (e.includes('not confirmed') || e.includes('confirm')) return 'Please confirm your email first (check your inbox), then sign in.';
+    if (e.includes('already registered') || e.includes('exists')) return 'An account with this email already exists. Sign in instead.';
+    if (e.includes('password')) return 'Password is too weak — Supabase requires at least 6 characters.';
+    if (e.includes('email logins are disabled')) return 'Email sign-in is disabled on the store account.';
+    return err || 'Something went wrong. Please try again.';
+  }
+
+  $('#accountForm').addEventListener('submit', async e => {
     e.preventDefault();
     clearErrors();
     const email = $('#accEmail').value.trim().toLowerCase();
     const pass = $('#accPass').value;
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    const btn = $('#authSubmit');
+    const original = btn.innerHTML;
 
     if (!emailRe.test(email)) return fail('Enter a valid email address.', '#accEmail');
+    if (pass.length < 8 || !/[A-Za-z]/.test(pass) || !/\d/.test(pass))
+      return fail('Password must be at least 8 characters and contain a letter and a number.', '#accPass');
+
+    btn.disabled = true;
+    btn.textContent = 'PLEASE WAIT…';
 
     if (authMode === 'signup') {
       const name = $('#accName').value.trim();
-      if (name.length < 2) return fail('Enter your full name (at least 2 characters).', '#accName');
-      if (users.some(u => u.email === email))
-        return fail('An account with this email already exists. Sign in instead.', '#accEmail');
-      if (pass.length < 8 || !/[A-Za-z]/.test(pass) || !/\d/.test(pass))
-        return fail('Password must be at least 8 characters and contain a letter and a number.', '#accPass');
-      if (pass !== $('#accConfirm').value)
-        return fail('Passwords do not match.', '#accConfirm');
+      if (name.length < 2) { btn.disabled = false; btn.innerHTML = original; return fail('Enter your full name (at least 2 characters).', '#accName'); }
+      if (pass !== $('#accConfirm').value) { btn.disabled = false; btn.innerHTML = original; return fail('Passwords do not match.', '#accConfirm'); }
 
-      users.push({ name, email, pass: hash(pass), saved: [], orders: [] });
-      sessionEmail = email;
-      persist();
-      showToast(`Account created — welcome, ${name.split(' ')[0]}! 🎉`);
+      const { data, error } = await sb('/auth/v1/signup', {
+        method: 'POST', body: { email, password: pass, data: { name } }
+      });
+      btn.disabled = false;
+      btn.innerHTML = original;
+      if (error) return fail(friendlyError(error), error.toLowerCase().includes('registered') ? '#accEmail' : '#accPass');
+
+      if (data.session) {
+        saveSession(data.session);
+        showToast(`Account created — welcome, ${name.split(' ')[0]}! 🎉`);
+        updateAccountUI();
+        openAccount('dash');
+      } else {
+        info('Account created. Check your email to confirm it, then sign in here.');
+      }
     } else {
-      const user = users.find(u => u.email === email && u.pass === hash(pass));
-      if (!user) return fail('Incorrect email or password. Try again or create an account.', '#accPass');
-      sessionEmail = email;
-      persist();
-      showToast(`Welcome back, ${user.name.split(' ')[0]}! ✅`);
-    }
+      const { data, error } = await sb('/auth/v1/token?grant_type=password', {
+        method: 'POST', body: { email, password: pass }
+      });
+      btn.disabled = false;
+      btn.innerHTML = original;
+      if (error || !data?.access_token) return fail(error ? friendlyError(error) : 'Could not sign in.', '#accPass');
 
-    updateAccountUI();
-    openAccount('dash');
+      saveSession(data);
+      const name = (data.user?.user_metadata?.name || email.split('@')[0]).split(' ')[0];
+      showToast(`Welcome back, ${name}! ✅`);
+      updateAccountUI();
+      openAccount('dash');
+    }
   });
 
   /* ---------- dashboard ---------- */
@@ -362,20 +427,22 @@
       showToast('Items added back to your bag 💪');
       openCart();
     }));
-    $$('[data-unsave]', savedEl).forEach(b => b.addEventListener('click', () => {
-      user.saved = user.saved.filter(id => id !== b.dataset.unsave);
-      persist(); updateAccountUI(); renderDashboard();
-    }));
-    $$('[data-saveadd]', savedEl).forEach(b => b.addEventListener('click', () => {
+    $$('[data-unsave]', savedEl).forEach(async b => {
+      const next = user.saved.filter(id => id !== b.dataset.unsave);
+      if (await updateProfile({ saved: next })) { updateAccountUI(); renderDashboard(); }
+    });
+    $$('[data-saveadd]', savedEl).forEach(b => {
       const p = $$('.quick-add').find(x => x.dataset.id === b.dataset.saveadd);
       addToCart(p.dataset);
       showToast('Added to your bag 💪');
-    }));
+    });
   }
 
-  $('#logoutBtn').addEventListener('click', () => {
-    sessionEmail = null;
-    persist();
+  $('#logoutBtn').addEventListener('click', async () => {
+    if (sbSession?.access_token) {
+      await sb('/auth/v1/logout', { method: 'POST', token: sbSession.access_token });
+    }
+    saveSession(null);
     updateAccountUI();
     setAuthMode('signin');
     openAccount('auth');
@@ -386,8 +453,9 @@
   function updateAccountUI() {
     const user = currentUser();
     $$('.save-btn').forEach(btn => {
-      btn.classList.toggle('saved', !!user && user.saved.includes(btn.dataset.id));
-      btn.textContent = !!user && user.saved.includes(btn.dataset.id) ? '♥' : '♡';
+      const saved = !!user && user.saved.includes(btn.dataset.id);
+      btn.classList.toggle('saved', saved);
+      btn.textContent = saved ? '♥' : '♡';
       btn.title = user ? 'Save to my list' : 'Sign in to save';
     });
     renderCart();
@@ -401,16 +469,17 @@
     btn.dataset.id = qa.dataset.id;
     btn.setAttribute('aria-label', 'Save product');
     btn.textContent = '♡';
-    btn.addEventListener('click', e => {
+    btn.addEventListener('click', async e => {
       e.stopPropagation();
       const user = currentUser();
       if (!user) return openAccount('auth', 'Sign in to save products and unlock member pricing.');
       const id = btn.dataset.id;
-      const i = user.saved.indexOf(id);
-      if (i === -1) { user.saved.push(id); showToast('Saved to your list ♥'); }
-      else { user.saved.splice(i, 1); showToast('Removed from your list'); }
-      persist();
-      updateAccountUI();
+      const saved = user.saved.includes(id);
+      const next = saved ? user.saved.filter(x => x !== id) : [...user.saved, id];
+      if (await updateProfile({ saved: next })) {
+        updateAccountUI();
+        showToast(saved ? 'Removed from your list' : 'Saved to your list ♥');
+      }
     });
     $('.product-media', card).appendChild(btn);
   });
@@ -430,21 +499,22 @@
   });
 
   /* ---------- checkout (members only) ---------- */
-  $('#checkoutBtn').addEventListener('click', () => {
+  $('#checkoutBtn').addEventListener('click', async () => {
     const user = currentUser();
     if (!user) return openAccount('auth', 'Sign in to complete your order and get 10% off.');
     if (!cart.length) { showToast('Your bag is empty — add something first.'); return; }
 
     const sub = cart.reduce((s, i) => s + i.qty * i.price, 0);
-    const total = sub * 0.9;
-    user.orders.push({
+    const total = Math.round(sub * 0.9 * 100) / 100;
+    const order = {
       id: 'AZ-' + Date.now().toString(36).toUpperCase(),
       date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
       items: cart.reduce((s, i) => s + i.qty, 0),
-      total: Math.round(total * 100) / 100,
+      total,
       products: cart.map(i => ({ ...i }))
-    });
-    persist();
+    };
+    const ok = await updateProfile({ orders: [...user.orders, order] });
+    if (!ok) return showToast('Could not save your order. Please try again.');
     cart.length = 0;
     renderCart();
     closeCart();
@@ -452,7 +522,11 @@
     if (accModal.classList.contains('open')) renderDashboard();
   });
 
-  updateAccountUI();
+  /* ---------- restore session ---------- */
+  (async () => {
+    if (sbSession && sbSession.expires_at < Date.now() + 60000) await refreshSession();
+    updateAccountUI();
+  })();
 
   /* ---------- newsletter ---------- */
   $('#newsForm').addEventListener('submit', e => {
