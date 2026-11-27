@@ -110,6 +110,25 @@
     else localStorage.removeItem(SESSION_KEY);
   };
 
+  /* Universal shared demo account — works on every device.
+     Accounts created by visitors stay on their own device (no server). */
+  const DEMO_EMAIL = 'demo@aznutrition.com';
+  const DEMO_PASS = 'AZdemo123';
+  if (!users.some(u => u.email === DEMO_EMAIL)) {
+    users.push({
+      name: 'AZ Demo Member', email: DEMO_EMAIL, pass: hash(DEMO_PASS),
+      saved: ['p1', 'p4'],
+      orders: [{
+        id: 'AZ-DEMO001', date: '12 Nov 2026', items: 2, total: 62.13,
+        products: [
+          { id: 'p1', name: 'Micronised Creatine Monohydrate 634g', price: 34.99, img: 'images/creatine.png', qty: 1 },
+          { id: 'p4', name: 'Superset Pre-Workout — Blue Freeze', price: 36.99, img: 'images/superset.webp', qty: 1 }
+        ]
+      }]
+    });
+    persist();
+  }
+
   /* ---------- cart ---------- */
   const cart = [];            // {id, name, price, img, qty}
   const drawer = $('#cartDrawer');
@@ -243,6 +262,14 @@
     $('#accountForm').reset();
   }
   $('#accSwitch').addEventListener('click', () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin'));
+
+  $('#useDemo').addEventListener('click', () => {
+    if (authMode !== 'signin') setAuthMode('signin');
+    clearErrors();
+    $('#accEmail').value = DEMO_EMAIL;
+    $('#accPass').value = DEMO_PASS;
+    $('#accountForm').dispatchEvent(new Event('submit', { cancelable: true }));
+  });
 
   function clearErrors() {
     $('#accError').hidden = true;
