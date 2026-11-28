@@ -31,6 +31,9 @@
       <button class="icon-btn" id="searchToggle" aria-label="Search products">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
       </button>
+      <button class="icon-btn admin-btn" id="adminBtn" aria-label="Admin dashboard" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg>
+      </button>
       <button class="icon-btn" id="accountBtn" aria-label="Account">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
       </button>
@@ -63,8 +66,8 @@
 
     <div class="hero-copy">
       <p class="eyebrow reveal"><span class="eyebrow-line"></span> PERFORMANCE NUTRITION / BUILT FOR PROGRESS</p>
-      <h1 class="hero-title reveal">FUEL YOUR<br><span class="accent">NEXT LEVEL.</span></h1>
-      <p class="hero-sub reveal">Premium sports nutrition designed to support your training,
+      <h1 class="hero-title reveal" id="heroTitle">FUEL YOUR<br><span class="accent">NEXT LEVEL.</span></h1>
+      <p class="hero-sub reveal" id="heroSub">Premium sports nutrition designed to support your training,
         recovery and everyday performance.</p>
       <div class="hero-cta reveal">
         <a href="#products" class="btn btn-primary">EXPLORE THE RANGE <span class="arr">↗</span></a>
@@ -158,7 +161,7 @@
       <h2 class="section-title">SHOP BY <span class="accent">CATEGORY</span></h2>
       <a href="#products" class="link-arrow">VIEW ALL PRODUCTS <span class="arr">↗</span></a>
     </div>
-    <div class="cat-grid">
+    <div class="cat-grid" id="catGrid">
       <a href="#products" class="cat-card reveal" data-filter-link="creatine">
         <img src="images/creatine.png" alt="Creatine">
         <div class="cat-overlay">
@@ -345,10 +348,10 @@
     <div class="promo-copy">
       <p class="eyebrow"><span class="eyebrow-line"></span> THE FORMULA</p>
       <h2 class="promo-title">RECOVER.<br>REFUEL.<br><span class="accent">GO AGAIN.</span></h2>
-      <p class="lead">Support your training with advanced recovery formulas —
-        and <strong>members save 10% on every order</strong>. Create a free account
-        to unlock your price, save products and track orders with code
-        <span class="code">AZ10</span>.</p>
+      <p class="lead"><span id="promoText">Support your training with advanced recovery formulas —
+        and <strong>members save <span id="promoPercent">10%</span> on every order</strong>.</span>
+        Create a free account to unlock your price, save products and track orders with code
+        <span class="code" id="promoCode">AZ10</span>.</p>
       <a href="#products" class="btn btn-primary">SHOP THE COLLECTION <span class="arr">↗</span></a>
     </div>
     <div class="promo-media">
@@ -419,8 +422,8 @@
 <section class="newsletter reveal">
   <div class="container news-inner">
     <div class="news-copy">
-      <h2>JOIN THE MOVEMENT</h2>
-      <p>Sign up for exclusive deals, new arrivals and training tips.</p>
+      <h2 id="newsTitle">JOIN THE MOVEMENT</h2>
+      <p id="newsText">Sign up for exclusive deals, new arrivals and training tips.</p>
     </div>
     <form class="news-form" id="newsForm">
       <input type="email" id="newsEmail" placeholder="Enter your email address" required>
@@ -507,7 +510,7 @@
   </div>
   <div class="cart-foot">
     <div class="cart-line"><span>SUBTOTAL</span><strong id="cartSub">$0.00</strong></div>
-    <div class="cart-line saving" id="cartSaveRow" hidden><span>MEMBER SAVING (10%)</span><strong id="cartSave">−$0.00</strong></div>
+    <div class="cart-line saving" id="cartSaveRow" hidden><span id="cartSaveLabel">MEMBER SAVING (10%)</span><strong id="cartSave">−$0.00</strong></div>
     <div class="cart-total"><span>TOTAL</span><strong id="cartTotal">$0.00</strong></div>
     <p class="cart-note" id="cartNote">Free shipping on orders over $75</p>
     <button class="btn btn-primary btn-block" id="checkoutBtn">SIGN IN TO CHECKOUT <span class="arr">↗</span></button>
@@ -568,9 +571,149 @@
         <h4>SAVED PRODUCTS</h4>
         <div class="acc-list" id="accSavedList"><p class="acc-empty">Tap the ♡ on a product to save it here.</p></div>
       </div>
+      <button class="btn btn-primary btn-block" id="openAdminBtn" hidden>OPEN ADMIN DASHBOARD <span class="arr">↗</span></button>
       <button class="btn btn-ghost btn-block" id="logoutBtn">SIGN OUT</button>
     </div>
 
+  </div>
+</div>
+
+<!-- ============ ADMIN PANEL ============ -->
+<div class="admin-panel" id="adminPanel" role="dialog" aria-modal="true" aria-label="Admin dashboard">
+  <div class="admin-box">
+    <header class="admin-head">
+      <div>
+        <p class="eyebrow"><span class="eyebrow-line"></span> AZ CONTROL ROOM</p>
+        <h3>ADMIN DASHBOARD</h3>
+      </div>
+      <button class="icon-btn" id="adminClose" aria-label="Close admin dashboard">✕</button>
+    </header>
+
+    <nav class="admin-tabs" id="adminTabs">
+      <button class="active" data-tab="overview">OVERVIEW</button>
+      <button data-tab="products">PRODUCTS</button>
+      <button data-tab="discounts">DISCOUNTS</button>
+      <button data-tab="orders">ORDERS</button>
+      <button data-tab="categories">CATEGORIES</button>
+      <button data-tab="settings">SITE TEXT</button>
+    </nav>
+
+    <div class="admin-body">
+
+      <!-- OVERVIEW -->
+      <section class="admin-section" data-panel="overview">
+        <div class="admin-stats">
+          <div><strong id="adStatProducts">0</strong><span>PRODUCTS</span></div>
+          <div><strong id="adStatDiscounts">0</strong><span>DISCOUNTS</span></div>
+          <div><strong id="adStatOrders">0</strong><span>ORDERS</span></div>
+          <div><strong id="adStatCategories">0</strong><span>CATEGORIES</span></div>
+        </div>
+        <div class="admin-note">
+          <strong>Store backend connected to Supabase.</strong>
+          <p>Products, discounts, categories, site text and orders are read live from your database. Changes here appear on the storefront immediately after a refresh.</p>
+        </div>
+        <div class="admin-quick">
+          <button class="btn btn-primary" id="adReload">REFRESH DATA</button>
+          <button class="btn btn-ghost" id="adGoOrders">VIEW ORDERS</button>
+        </div>
+      </section>
+
+      <!-- PRODUCTS -->
+      <section class="admin-section" data-panel="products" hidden>
+        <form class="admin-form" id="productForm" novalidate>
+          <input type="hidden" id="pEditId">
+          <div class="admin-form-grid">
+            <label>PRODUCT ID<input id="pId" placeholder="p9" required></label>
+            <label>PRODUCT NAME<input id="pName" placeholder="Micronised Creatine 500g" required></label>
+            <label>BRAND<input id="pBrand" placeholder="OPTIMUM NUTRITION"></label>
+            <label>CATEGORY<select id="pCategory"></select></label>
+            <label>PRICE ($)<input id="pPrice" type="number" step="0.01" min="0" placeholder="29.99" required></label>
+            <label>SORT ORDER<input id="pSort" type="number" value="0"></label>
+            <label class="full">IMAGE URL<input id="pImg" placeholder="https://… or images/my-product.png"></label>
+            <label class="full">OR UPLOAD IMAGE<input type="file" id="pFile" accept="image/*"><small id="pUploadStatus">Uploads go to the public “products” bucket.</small></label>
+            <label class="full">BADGE TAG<input id="pTag" placeholder="BESTSELLER · NEW · -10%"></label>
+            <label class="full">DESCRIPTION<textarea id="pDesc" rows="2" placeholder="Short product description"></textarea></label>
+            <label class="check"><input type="checkbox" id="pActive" checked> ACTIVE / VISIBLE ON STORE</label>
+          </div>
+          <div class="admin-form-actions">
+            <button type="submit" class="btn btn-primary" id="pSaveBtn">SAVE PRODUCT</button>
+            <button type="button" class="btn btn-ghost" id="pCancelBtn" hidden>CANCEL EDIT</button>
+          </div>
+          <p class="admin-status" id="pStatus"></p>
+        </form>
+        <div class="admin-list-head"><h4>STORE PRODUCTS</h4><span id="productCount">0</span></div>
+        <div class="admin-list" id="productList"></div>
+      </section>
+
+      <!-- DISCOUNTS -->
+      <section class="admin-section" data-panel="discounts" hidden>
+        <form class="admin-form" id="discountForm" novalidate>
+          <input type="hidden" id="dEditCode">
+          <div class="admin-form-grid">
+            <label>CODE<input id="dCode" placeholder="AZ10" required></label>
+            <label>PERCENT (%)<input id="dPercent" type="number" min="1" max="100" placeholder="10" required></label>
+            <label class="full">NOTE<input id="dNote" placeholder="Automatic member discount"></label>
+            <label class="check"><input type="checkbox" id="dActive" checked> ACTIVE</label>
+          </div>
+          <div class="admin-form-actions">
+            <button type="submit" class="btn btn-primary" id="dSaveBtn">SAVE DISCOUNT</button>
+            <button type="button" class="btn btn-ghost" id="dCancelBtn" hidden>CANCEL EDIT</button>
+          </div>
+          <p class="admin-status" id="dStatus"></p>
+        </form>
+        <div class="admin-list-head"><h4>DISCOUNT CODES</h4><span id="discountCount">0</span></div>
+        <div class="admin-list" id="discountList"></div>
+      </section>
+
+      <!-- ORDERS -->
+      <section class="admin-section" data-panel="orders" hidden>
+        <div class="admin-toolbar">
+          <div><h4>ALL CUSTOMER ORDERS</h4><p>Live from the orders table. Update status from any row.</p></div>
+          <button class="btn btn-primary" id="orderReload">REFRESH</button>
+        </div>
+        <div class="admin-list" id="orderList"></div>
+      </section>
+
+      <!-- CATEGORIES -->
+      <section class="admin-section" data-panel="categories" hidden>
+        <form class="admin-form" id="categoryForm" novalidate>
+          <input type="hidden" id="cEditId">
+          <div class="admin-form-grid">
+            <label>CATEGORY ID<input id="cId" placeholder="recovery" required></label>
+            <label>LABEL<input id="cLabel" placeholder="RECOVERY" required></label>
+            <label class="full">IMAGE URL<input id="cImg" placeholder="images/recovery.png"></label>
+            <label>SORT ORDER<input id="cSort" type="number" value="0"></label>
+            <label class="check"><input type="checkbox" id="cActive" checked> ACTIVE / SHOWN ON STORE</label>
+          </div>
+          <div class="admin-form-actions">
+            <button type="submit" class="btn btn-primary" id="cSaveBtn">SAVE CATEGORY</button>
+            <button type="button" class="btn btn-ghost" id="cCancelBtn" hidden>CANCEL EDIT</button>
+          </div>
+          <p class="admin-status" id="cStatus"></p>
+        </form>
+        <div class="admin-list-head"><h4>CATEGORIES</h4><span id="categoryCount">0</span></div>
+        <div class="admin-list" id="categoryList"></div>
+      </section>
+
+      <!-- SITE TEXT -->
+      <section class="admin-section" data-panel="settings" hidden>
+        <form class="admin-form" id="siteForm" novalidate>
+          <p class="admin-hint">Basic HTML is allowed in the headline and promo text (for example <code>&lt;span class="accent"&gt;…&lt;/span&gt;</code>).</p>
+          <div class="admin-form-grid">
+            <label class="full">HERO HEADLINE<textarea id="sHeroTitle" rows="2"></textarea></label>
+            <label class="full">HERO SUBTITLE<textarea id="sHeroSub" rows="2"></textarea></label>
+            <label class="full">PROMO TEXT<textarea id="sPromoText" rows="3"></textarea></label>
+            <label>NEWSLETTER TITLE<input id="sNewsTitle"></label>
+            <label>NEWSLETTER TEXT<input id="sNewsText"></label>
+          </div>
+          <div class="admin-form-actions">
+            <button type="submit" class="btn btn-primary" id="sSaveBtn">SAVE SITE TEXT</button>
+          </div>
+          <p class="admin-status" id="sStatus"></p>
+        </form>
+      </section>
+
+    </div>
   </div>
 </div>
 

@@ -44,10 +44,25 @@
   searchInput.addEventListener('input', applyFilters);
 
   /* ---------- product filtering ---------- */
-  const cards = $$('.product-card');
-  const filterBtns = $$('.filter-btn');
+  let cards = $$('.product-card');
+  let filterBtns = $$('.filter-btn');
   const noResults = $('#noResults');
   let activeCat = 'all';
+
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+
+  function bindFilterLinks() {
+    $$('[data-filter-link]').forEach(link => {
+      if (link.dataset.filterBound) return;
+      link.dataset.filterBound = '1';
+      link.addEventListener('click', e => {
+        e.preventDefault();
+        setFilter(link.dataset.filterLink);
+      });
+    });
+  }
 
   function applyFilters() {
     const q = searchInput.value.trim().toLowerCase();
@@ -70,9 +85,7 @@
   }
 
   filterBtns.forEach(b => b.addEventListener('click', () => setFilter(b.dataset.filter)));
-  $$('[data-filter-link]').forEach(link => {
-    link.addEventListener('click', () => setFilter(link.dataset.filterLink));
-  });
+  bindFilterLinks();
 
   /* ---------- toast ---------- */
   const toast = $('#toast');
@@ -91,13 +104,26 @@
   const SB_URL = 'https://oclxrheghqarandewokw.supabase.co';
   const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jbHhyaGVnaHFhcmFuZGV3b2t3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU3MzE5MTAsImV4cCI6MjExMTMwNzkxMH0.bIh_eg0YZcfYvk_ehuJ6IMB527uJKS8tHRfkd1myOEs';
   const SESSION_KEY = 'az_sb_session_v1';
-  const money = n => '$' + n.toFixed(2);
+  const ADMIN_EMAIL = 'admin@aznutrition.com';
+  const REST = '/rest/v1';
+  const money = n => '$' + Number(n || 0).toFixed(2);
 
-  async function sb(path, { method = 'GET', body, token } = {}) {
+  /* shared store data (loaded from Supabase, with static fallbacks) */
+  const storeData = {
+    products: [], allProducts: [],
+    categories: [], allCategories: [],
+    discounts: [], allDiscounts: [],
+    siteText: {}, orders: []
+  };
+  const loaded = { products: false, discounts: false, categories: false, siteText: false, orders: false };
+  let memberDiscount = { code: 'AZ10', percent: 10, note: 'Automatic member discount' };
+
+  async function sb(path, { method = 'GET', body, token, prefer } = {}) {
     const headers = {
       apikey: SB_KEY,
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(prefer ? { Prefer: prefer } : {})
     };
     try {
       const res = await fetch(SB_URL + path, {
@@ -141,6 +167,10 @@
       saved: Array.isArray(m.saved) ? m.saved : [],
       orders: Array.isArray(m.orders) ? m.orders : []
     };
+  }
+
+  function isAdmin() {
+    return (currentUser()?.email || '').toLowerCase() === ADMIN_EMAIL;
   }
 
   /* persist saved/orders into this user's Supabase metadata */
@@ -191,20 +221,26 @@
   $('#cartClose').addEventListener('click', closeCart);
   overlay.addEventListener('click', closeCart);
 
+  function discountPercent() {
+    return currentUser() && memberDiscount ? Number(memberDiscount.percent) || 0 : 0;
+  }
+
   function renderCart() {
     const user = currentUser();
     const count = cart.reduce((s, i) => s + i.qty, 0);
     const sub = cart.reduce((s, i) => s + i.qty * i.price, 0);
-    const saving = user ? sub * 0.1 : 0;
+    const rate = discountPercent() / 100;
+    const saving = sub * rate;
     const total = sub - saving;
 
     $('#cartCount').textContent = count;
     $('#cartHeadCount').textContent = `(${count})`;
     $('#cartSub').textContent = money(sub);
     $('#cartTotal').textContent = money(total);
-    $('#cartSaveRow').hidden = !user;
+    $('#cartSaveRow').hidden = !rate;
+    $('#cartSaveLabel').textContent = `MEMBER SAVING (${discountPercent()}%)`;
     $('#cartSave').textContent = `−${money(saving)}`;
-    $('#cartNote').textContent = user
+    $('#cartNote').textContent = rate
       ? `Member price applied — you save ${money(saving)}`
       : 'Free shipping on orders over $75';
     $('#checkoutBtn').innerHTML = user
@@ -280,7 +316,7 @@
   $('#dashClose').addEventListener('click', closeAccount);
   accModal.addEventListener('click', e => { if (e.target === accModal) closeAccount(); });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeCart(); closeNav(); closeAccount(); }
+    if (e.key === 'Escape') { closeCart(); closeNav(); closeAccount(); closeAdmin(); }
   });
 
   function setAuthMode(mode) {
@@ -452,6 +488,9 @@
   /* ---------- wishlist hearts ---------- */
   function updateAccountUI() {
     const user = currentUser();
+    const admin = isAdmin();
+    $('#adminBtn').hidden = !admin;
+    $('#openAdminBtn').hidden = !admin;
     $$('.save-btn').forEach(btn => {
       const saved = !!user && user.saved.includes(btn.dataset.id);
       btn.classList.toggle('saved', saved);
@@ -461,42 +500,52 @@
     renderCart();
   }
 
-  cards.forEach(card => {
-    const qa = $('.quick-add', card);
-    if (!qa) return;
-    const btn = document.createElement('button');
-    btn.className = 'save-btn';
-    btn.dataset.id = qa.dataset.id;
-    btn.setAttribute('aria-label', 'Save product');
-    btn.textContent = '♡';
-    btn.addEventListener('click', async e => {
-      e.stopPropagation();
-      const user = currentUser();
-      if (!user) return openAccount('auth', 'Sign in to save products and unlock member pricing.');
-      const id = btn.dataset.id;
-      const saved = user.saved.includes(id);
-      const next = saved ? user.saved.filter(x => x !== id) : [...user.saved, id];
-      if (await updateProfile({ saved: next })) {
-        updateAccountUI();
-        showToast(saved ? 'Removed from your list' : 'Saved to your list ♥');
-      }
+  function initProductCards(list) {
+    list.forEach(card => {
+      if (card.dataset.ready) return;
+      card.dataset.ready = '1';
+      const qa = $('.quick-add', card);
+      if (!qa) return;
+      const btn = document.createElement('button');
+      btn.className = 'save-btn';
+      btn.dataset.id = qa.dataset.id;
+      btn.setAttribute('aria-label', 'Save product');
+      btn.textContent = '♡';
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
+        const user = currentUser();
+        if (!user) return openAccount('auth', 'Sign in to save products and unlock member pricing.');
+        const id = btn.dataset.id;
+        const saved = user.saved.includes(id);
+        const next = saved ? user.saved.filter(x => x !== id) : [...user.saved, id];
+        if (await updateProfile({ saved: next })) {
+          updateAccountUI();
+          showToast(saved ? 'Removed from your list' : 'Saved to your list ♥');
+        }
+      });
+      $('.product-media', card).appendChild(btn);
     });
-    $('.product-media', card).appendChild(btn);
-  });
+  }
+  initProductCards(cards);
 
   /* ---------- add to bag ---------- */
-  $$('.quick-add').forEach(btn => {
-    btn.addEventListener('click', () => {
-      addToCart(btn.dataset);
-      showToast(`Added — ${btn.dataset.name} 💪`);
-      btn.classList.add('added');
-      btn.textContent = 'ADDED ✓';
-      setTimeout(() => {
-        btn.classList.remove('added');
-        btn.textContent = 'ADD TO BAG +';
-      }, 1400);
+  function initQuickAdd(list) {
+    list.forEach(btn => {
+      if (btn.dataset.ready) return;
+      btn.dataset.ready = '1';
+      btn.addEventListener('click', () => {
+        addToCart(btn.dataset);
+        showToast(`Added — ${btn.dataset.name} 💪`);
+        btn.classList.add('added');
+        btn.textContent = 'ADDED ✓';
+        setTimeout(() => {
+          btn.classList.remove('added');
+          btn.textContent = 'ADD TO BAG +';
+        }, 1400);
+      });
     });
-  });
+  }
+  initQuickAdd($$('.quick-add'));
 
   /* ---------- checkout (members only) ---------- */
   $('#checkoutBtn').addEventListener('click', async () => {
@@ -505,7 +554,9 @@
     if (!cart.length) { showToast('Your bag is empty — add something first.'); return; }
 
     const sub = cart.reduce((s, i) => s + i.qty * i.price, 0);
-    const total = Math.round(sub * 0.9 * 100) / 100;
+    const rate = discountPercent() / 100;
+    const discount = Math.round(sub * rate * 100) / 100;
+    const total = Math.round((sub - discount) * 100) / 100;
     const order = {
       id: 'AZ-' + Date.now().toString(36).toUpperCase(),
       date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
@@ -515,11 +566,639 @@
     };
     const ok = await updateProfile({ orders: [...user.orders, order] });
     if (!ok) return showToast('Could not save your order. Please try again.');
+
+    /* also write to the shared orders table so admin can see it */
+    const { error: orderErr } = await sb(`${REST}/orders`, {
+      method: 'POST', token: sbSession.access_token, prefer: 'return=minimal',
+      body: {
+        id: order.id,
+        user_id: sbSession.user.id,
+        email: user.email,
+        customer_name: user.name,
+        items: order.products,
+        subtotal: sub,
+        discount,
+        discount_code: memberDiscount?.code || null,
+        total,
+        status: 'New'
+      }
+    });
+    if (orderErr) console.warn('Shared order log unavailable:', orderErr);
+
     cart.length = 0;
     renderCart();
     closeCart();
     showToast('Order placed! Aziz will contact you shortly ✅');
     if (accModal.classList.contains('open')) renderDashboard();
+  });
+
+  /* ============================================================
+     SHARED STORE DATA — Supabase tables with static fallbacks
+     ============================================================ */
+  const categoryImages = {
+    creatine: 'images/creatine.png',
+    preworkout: 'images/abe.webp',
+    vitamins: 'images/d3.png',
+    health: 'images/omega.jpg'
+  };
+
+  function tagClass(tag) {
+    const t = String(tag || '').toLowerCase();
+    if (t.includes('new')) return 'tag-new';
+    if (t.startsWith('-') || t.includes('sale') || t.includes('%')) return 'tag-sale';
+    return 'tag-hot';
+  }
+
+  function productCardHTML(p) {
+    const img = p.img || 'images/creatine.png';
+    const tag = String(p.tag || '').trim();
+    return `
+      <article class="product-card reveal" data-cat="${esc(p.category)}" data-name="${esc(p.name + ' ' + (p.brand || ''))}">
+        <div class="product-media">
+          ${tag ? `<span class="tag ${tagClass(tag)}">${esc(tag)}</span>` : ''}
+          <img src="${esc(img)}" alt="${esc(p.name)}">
+          <button class="quick-add" data-id="${esc(p.id)}" data-name="${esc(p.name)}" data-price="${Number(p.price) || 0}" data-img="${esc(img)}">ADD TO BAG +</button>
+        </div>
+        <div class="product-info">
+          <p class="product-brand">${esc((p.brand || 'AZ NUTRITION').toUpperCase())}</p>
+          <h3 class="product-name">${esc(p.name)}</h3>
+          <div class="product-meta">
+            <span class="price">${money(p.price)}</span>
+            <span class="stars" aria-label="5 out of 5">★★★★★</span>
+          </div>
+          ${p.description ? `<p class="product-desc">${esc(p.description)}</p>` : ''}
+        </div>
+      </article>`;
+  }
+
+  function renderDynamicProducts(list) {
+    $('#productGrid').innerHTML = list.map(productCardHTML).join('');
+    cards = $$('.product-card');
+    filterBtns = $$('.filter-btn');
+    filterBtns.forEach(b => b.addEventListener('click', () => setFilter(b.dataset.filter)));
+    initProductCards(cards);
+    initQuickAdd($$('.quick-add'));
+    applyFilters();
+    $$('.reveal', $('#productGrid')).forEach(el => io.observe(el));
+  }
+
+  function renderDynamicCategories(list) {
+    const keep = list.some(c => c.id === activeCat) ? activeCat : 'all';
+    $('#filters').innerHTML = `<button class="filter-btn${keep === 'all' ? ' active' : ''}" data-filter="all">ALL</button>` +
+      list.map(c => `<button class="filter-btn${keep === c.id ? ' active' : ''}" data-filter="${esc(c.id)}">${esc(c.label.toUpperCase())}</button>`).join('');
+
+    $('#catGrid').innerHTML = list.map(c => {
+      const img = c.img || categoryImages[c.id] || 'images/creatine.png';
+      return `
+        <a href="#products" class="cat-card reveal" data-filter-link="${esc(c.id)}">
+          <img src="${esc(img)}" alt="${esc(c.label)}">
+          <div class="cat-overlay"><h3>${esc(c.label.toUpperCase())}</h3><span class="cat-arrow">↗</span></div>
+        </a>`;
+    }).join('');
+
+    $$('[data-filter-link]').forEach(link => {
+      const cat = list.find(c => c.id === link.dataset.filterLink);
+      if (!cat) return;
+      if (link.closest('.nav') || link.closest('.cat-card')) link.textContent = cat.label.toUpperCase();
+      else if (!link.closest('#filters')) link.textContent = cat.label;
+    });
+
+    filterBtns = $$('.filter-btn');
+    filterBtns.forEach(b => b.addEventListener('click', () => setFilter(b.dataset.filter)));
+    bindFilterLinks();
+    setFilter(keep);
+    $$('.reveal', $('#catGrid')).forEach(el => io.observe(el));
+  }
+
+  function applySiteText(map) {
+    const set = (sel, value, html = false) => {
+      if (value == null) return;
+      const el = $(sel);
+      if (!el) return;
+      if (html) el.innerHTML = value;
+      else el.textContent = value;
+    };
+    set('#heroTitle', map.heroTitle, true);
+    set('#heroSub', map.heroSub);
+    set('#promoText', map.promoText, true);
+    set('#newsTitle', map.newsTitle);
+    set('#newsText', map.newsText);
+  }
+
+  function updateDiscountUI() {
+    const pct = memberDiscount ? Number(memberDiscount.percent) || 0 : 0;
+    const pp = $('#promoPercent');
+    if (pp) pp.textContent = pct + '%';
+    const pc = $('#promoCode');
+    if (pc) {
+      pc.textContent = memberDiscount?.code || '—';
+      pc.hidden = !memberDiscount?.code;
+    }
+    renderCart();
+  }
+
+  async function fetchRows(table, query, token) {
+    const { data, error } = await sb(`${REST}/${table}?${query}`, { token });
+    return { data: Array.isArray(data) ? data : [], error };
+  }
+
+  let loadingStore = false;
+  async function loadStoreData() {
+    if (loadingStore) return;
+    loadingStore = true;
+    const admin = isAdmin();
+    const token = sbSession?.access_token;
+
+    try {
+      const [pubProducts, pubCats, pubDiscounts, textRes, allProducts, allCats, allDiscounts, ordersRes] = await Promise.all([
+        fetchRows('products', 'select=*&active=eq.true&order=sort.asc,created_at.asc', token),
+        fetchRows('categories', 'select=*&active=eq.true&order=sort.asc', token),
+        fetchRows('discounts', 'select=*&active=eq.true&order=created_at.asc', token),
+        sb(`${REST}/site_text?select=key,value`),
+        admin ? fetchRows('products', 'select=*&order=sort.asc,created_at.asc', token) : null,
+        admin ? fetchRows('categories', 'select=*&order=sort.asc', token) : null,
+        admin ? fetchRows('discounts', 'select=*&order=created_at.asc', token) : null,
+        admin ? fetchRows('orders', 'select=*&order=created_at.desc', token) : null
+      ]);
+
+      if (!pubProducts.error) {
+        storeData.products = pubProducts.data;
+        loaded.products = true;
+        if (pubProducts.data.length) renderDynamicProducts(pubProducts.data);
+      }
+      if (!pubCats.error) {
+        storeData.categories = pubCats.data;
+        loaded.categories = true;
+        if (pubCats.data.length) renderDynamicCategories(pubCats.data);
+      }
+      if (!pubDiscounts.error) {
+        storeData.discounts = pubDiscounts.data;
+        loaded.discounts = true;
+        memberDiscount = pubDiscounts.data[0] || null;
+      }
+      if (!textRes.error && Array.isArray(textRes.data)) {
+        storeData.siteText = Object.fromEntries(textRes.data.map(r => [r.key, r.value]));
+        loaded.siteText = true;
+        applySiteText(storeData.siteText);
+      }
+
+      if (admin) {
+        storeData.allProducts = allProducts?.error ? [] : (allProducts?.data || []);
+        storeData.allCategories = allCats?.error ? [] : (allCats?.data || []);
+        storeData.allDiscounts = allDiscounts?.error ? [] : (allDiscounts?.data || []);
+        storeData.orders = ordersRes?.error ? [] : (ordersRes?.data || []);
+        loaded.orders = !ordersRes?.error;
+      }
+
+      updateDiscountUI();
+      renderAdminView();
+    } finally {
+      loadingStore = false;
+    }
+  }
+
+  /* ============================================================
+     ADMIN DASHBOARD
+     ============================================================ */
+  const adminPanel = $('#adminPanel');
+  let adminTab = 'overview';
+  const orderStatuses = ['New', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
+
+  function adminStatus(sel, msg, error = false) {
+    const el = $(sel);
+    if (!el) return;
+    el.textContent = msg || '';
+    el.classList.toggle('error', !!error);
+  }
+
+  function openAdmin() {
+    if (!isAdmin()) return showToast('Admin access only.');
+    adminPanel.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    switchAdminTab('overview');
+    loadStoreData();
+  }
+  function closeAdmin() {
+    adminPanel.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  $('#adminBtn').addEventListener('click', openAdmin);
+  $('#openAdminBtn').addEventListener('click', () => { closeAccount(); openAdmin(); });
+  $('#adminClose').addEventListener('click', closeAdmin);
+  adminPanel.addEventListener('click', e => { if (e.target === adminPanel) closeAdmin(); });
+
+  function switchAdminTab(tab) {
+    adminTab = tab;
+    $$('#adminTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    $$('[data-panel]', adminPanel).forEach(s => { s.hidden = s.dataset.panel !== tab; });
+    renderAdminView();
+  }
+  $('#adminTabs').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-tab]');
+    if (btn) switchAdminTab(btn.dataset.tab);
+  });
+
+  function renderAdminView() {
+    if (!adminPanel.classList.contains('open')) return;
+    if (adminTab === 'overview') renderAdminOverview();
+    if (adminTab === 'products') renderAdminProducts();
+    if (adminTab === 'discounts') renderAdminDiscounts();
+    if (adminTab === 'orders') renderAdminOrders();
+    if (adminTab === 'categories') renderAdminCategories();
+    if (adminTab === 'settings') populateSiteForm();
+  }
+
+  function renderAdminOverview() {
+    $('#adStatProducts').textContent = storeData.allProducts.length || storeData.products.length || 0;
+    $('#adStatDiscounts').textContent = storeData.allDiscounts.length || storeData.discounts.length || 0;
+    $('#adStatOrders').textContent = storeData.orders.length || 0;
+    $('#adStatCategories').textContent = storeData.allCategories.length || storeData.categories.length || 0;
+  }
+
+  /* ---------- admin: products ---------- */
+  function populateCategorySelect() {
+    const sel = $('#pCategory');
+    const cats = storeData.allCategories.length ? storeData.allCategories : storeData.categories;
+    const list = cats.length ? cats : [{ id: 'creatine', label: 'CREATINE' }];
+    sel.innerHTML = list.map(c => `<option value="${esc(c.id)}">${esc(c.label.toUpperCase())}</option>`).join('');
+  }
+
+  function resetProductForm() {
+    $('#productForm').reset();
+    $('#pEditId').value = '';
+    $('#pId').disabled = false;
+    $('#pActive').checked = true;
+    $('#pCancelBtn').hidden = true;
+    adminStatus('#pStatus', '');
+    adminStatus('#pUploadStatus', 'Uploads go to the public “products” bucket.');
+    populateCategorySelect();
+  }
+
+  function renderAdminProducts() {
+    const list = storeData.allProducts.length ? storeData.allProducts : storeData.products;
+    $('#productCount').textContent = list.length;
+    $('#productList').innerHTML = list.length ? list.map(p => `
+      <div class="admin-item ${p.active ? '' : 'inactive'}">
+        <img src="${esc(p.img || 'images/creatine.png')}" alt="">
+        <div class="ai-info">
+          <strong>${esc(p.name)}</strong>
+          <span>${esc(p.id)} · ${esc(p.category)} · ${money(p.price)}${p.active ? '' : ' · HIDDEN'}</span>
+        </div>
+        <div class="ai-actions">
+          <button data-edit-product="${esc(p.id)}">EDIT</button>
+          <button class="danger" data-delete-product="${esc(p.id)}">DELETE</button>
+        </div>
+      </div>`).join('') : '<p class="admin-empty">No products yet. Add one with the form above.</p>';
+    populateCategorySelect();
+  }
+
+  function editProduct(id) {
+    const list = storeData.allProducts.length ? storeData.allProducts : storeData.products;
+    const p = list.find(x => x.id === id);
+    if (!p) return;
+    populateCategorySelect();
+    $('#pEditId').value = p.id;
+    $('#pId').value = p.id;
+    $('#pId').disabled = true;
+    $('#pName').value = p.name || '';
+    $('#pBrand').value = p.brand || '';
+    $('#pCategory').value = p.category || 'creatine';
+    if (!$('#pCategory').value) $('#pCategory').value = 'creatine';
+    $('#pPrice').value = p.price ?? '';
+    $('#pSort').value = p.sort ?? 0;
+    $('#pImg').value = p.img || '';
+    $('#pTag').value = p.tag || '';
+    $('#pDesc').value = p.description || '';
+    $('#pActive').checked = p.active !== false;
+    $('#pCancelBtn').hidden = false;
+    adminStatus('#pStatus', `Editing product “${p.id}”.`);
+    $('#productForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  async function uploadProductImage(file, statusSel) {
+    if (!sbSession?.access_token) return adminStatus(statusSel, 'Sign in as admin before uploading.', true);
+    const base = (file.name.replace(/\.[^.]+$/, '') || 'image').replace(/[^a-z0-9_-]/gi, '-').slice(0, 40);
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+    const path = `${Date.now()}-${base}.${ext}`;
+    adminStatus(statusSel, 'Uploading image…');
+    const res = await fetch(`${SB_URL}/storage/v1/object/products/${encodeURIComponent(path)}`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${sbSession.access_token}`,
+        'Content-Type': file.type || 'application/octet-stream',
+        'x-upsert': 'true'
+      },
+      body: file
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      adminStatus(statusSel, data.message || 'Upload failed. Create the “products” bucket by running supabase-setup.sql.', true);
+      return null;
+    }
+    const url = `${SB_URL}/storage/v1/object/public/products/${path}`;
+    $('#pImg').value = url;
+    adminStatus(statusSel, 'Uploaded — URL filled in above.');
+    return url;
+  }
+
+  $('#pFile').addEventListener('change', e => {
+    const file = e.target.files?.[0];
+    if (file) uploadProductImage(file, '#pUploadStatus');
+  });
+  $('#pCancelBtn').addEventListener('click', resetProductForm);
+
+  $('#productForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = $('#pName').value.trim();
+    const price = parseFloat($('#pPrice').value);
+    if (!name) return adminStatus('#pStatus', 'Product name is required.', true);
+    if (!isFinite(price) || price < 0) return adminStatus('#pStatus', 'Enter a valid price.', true);
+
+    let img = $('#pImg').value.trim();
+    const file = $('#pFile').files?.[0];
+    if (file) {
+      img = await uploadProductImage(file, '#pUploadStatus');
+      if (!img) return;
+    }
+
+    const editId = $('#pEditId').value;
+    const id = (editId || $('#pId').value.trim()).toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    if (!id) return adminStatus('#pStatus', 'Product ID is required.', true);
+
+    const row = {
+      id, name, price,
+      brand: $('#pBrand').value.trim(),
+      category: $('#pCategory').value,
+      img: img || 'images/creatine.png',
+      tag: $('#pTag').value.trim(),
+      description: $('#pDesc').value.trim(),
+      active: $('#pActive').checked,
+      sort: parseInt($('#pSort').value, 10) || 0
+    };
+    adminStatus('#pStatus', 'Saving…');
+    const { error } = await sb(`${REST}/products${editId ? '?id=eq.' + encodeURIComponent(editId) : ''}`, {
+      method: editId ? 'PATCH' : 'POST', token: sbSession.access_token,
+      prefer: 'return=minimal', body: row
+    });
+    if (error) return adminStatus('#pStatus', error, true);
+    adminStatus('#pStatus', editId ? 'Product updated.' : 'Product added.');
+    resetProductForm();
+    await loadStoreData();
+    showToast(editId ? 'Product updated ✅' : 'Product added ✅');
+  });
+
+  $('#productList').addEventListener('click', async e => {
+    const edit = e.target.closest('[data-edit-product]')?.dataset.editProduct;
+    const del = e.target.closest('[data-delete-product]')?.dataset.deleteProduct;
+    if (edit) return editProduct(edit);
+    if (del && confirm(`Delete product “${del}”?`)) {
+      const { error } = await sb(`${REST}/products?id=eq.${encodeURIComponent(del)}`, {
+        method: 'DELETE', token: sbSession.access_token, prefer: 'return=minimal'
+      });
+      if (error) return showToast('Delete failed: ' + error);
+      showToast('Product deleted.');
+      await loadStoreData();
+    }
+  });
+
+  /* ---------- admin: discounts ---------- */
+  function resetDiscountForm() {
+    $('#discountForm').reset();
+    $('#dEditCode').value = '';
+    $('#dCode').disabled = false;
+    $('#dActive').checked = true;
+    $('#dCancelBtn').hidden = true;
+    adminStatus('#dStatus', '');
+  }
+
+  function renderAdminDiscounts() {
+    const list = storeData.allDiscounts.length ? storeData.allDiscounts : storeData.discounts;
+    $('#discountCount').textContent = list.length;
+    $('#discountList').innerHTML = list.length ? list.map(d => `
+      <div class="admin-item ${d.active ? '' : 'inactive'}">
+        <div class="ai-info">
+          <strong>${esc(d.code)} — ${Number(d.percent)}% OFF</strong>
+          <span>${esc(d.note || 'No note')}${d.active ? '' : ' · INACTIVE'}</span>
+        </div>
+        <div class="ai-actions">
+          <button data-edit-discount="${esc(d.code)}">EDIT</button>
+          <button class="danger" data-delete-discount="${esc(d.code)}">DELETE</button>
+        </div>
+      </div>`).join('') : '<p class="admin-empty">No discount codes yet.</p>';
+  }
+
+  $('#dCancelBtn').addEventListener('click', resetDiscountForm);
+  $('#discountForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const editCode = $('#dEditCode').value;
+    const code = (editCode || $('#dCode').value.trim()).toUpperCase().replace(/\s+/g, '-');
+    const percent = parseInt($('#dPercent').value, 10);
+    if (!code) return adminStatus('#dStatus', 'Discount code is required.', true);
+    if (!isFinite(percent) || percent < 1 || percent > 100) return adminStatus('#dStatus', 'Percent must be between 1 and 100.', true);
+    adminStatus('#dStatus', 'Saving…');
+    const { error } = await sb(`${REST}/discounts${editCode ? '?code=eq.' + encodeURIComponent(editCode) : ''}`, {
+      method: editCode ? 'PATCH' : 'POST', token: sbSession.access_token,
+      prefer: 'return=minimal',
+      body: { code, percent, note: $('#dNote').value.trim(), active: $('#dActive').checked }
+    });
+    if (error) return adminStatus('#dStatus', error, true);
+    adminStatus('#dStatus', editCode ? 'Discount updated.' : 'Discount added.');
+    resetDiscountForm();
+    await loadStoreData();
+    showToast('Discount saved ✅');
+  });
+
+  $('#discountList').addEventListener('click', async e => {
+    const edit = e.target.closest('[data-edit-discount]')?.dataset.editDiscount;
+    const del = e.target.closest('[data-delete-discount]')?.dataset.deleteDiscount;
+    if (edit) {
+      const d = [...storeData.allDiscounts, ...storeData.discounts].find(x => x.code === edit);
+      if (!d) return;
+      $('#dEditCode').value = d.code;
+      $('#dCode').value = d.code;
+      $('#dCode').disabled = true;
+      $('#dPercent').value = d.percent;
+      $('#dNote').value = d.note || '';
+      $('#dActive').checked = d.active !== false;
+      $('#dCancelBtn').hidden = false;
+      adminStatus('#dStatus', `Editing discount “${d.code}”.`);
+      return;
+    }
+    if (del && confirm(`Delete discount “${del}”?`)) {
+      const { error } = await sb(`${REST}/discounts?code=eq.${encodeURIComponent(del)}`, {
+        method: 'DELETE', token: sbSession.access_token, prefer: 'return=minimal'
+      });
+      if (error) return showToast('Delete failed: ' + error);
+      showToast('Discount deleted.');
+      await loadStoreData();
+    }
+  });
+
+  /* ---------- admin: orders ---------- */
+  function renderAdminOrders() {
+    const list = storeData.orders;
+    $('#orderList').innerHTML = list.length ? list.map(o => {
+      const date = o.created_at ? new Date(o.created_at).toLocaleString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      }) : '—';
+      const items = Array.isArray(o.items) ? o.items : [];
+      return `
+      <div class="order-wrap">
+        <div class="order-row">
+          <div class="oi-main">
+            <strong>${esc(o.id)} · ${esc(o.customer_name || o.email)}</strong>
+            <span>${esc(date)} · ${esc(o.email)} · ${items.length} item${items.length === 1 ? '' : 's'}</span>
+          </div>
+          <span class="oi-total">${money(o.total)}</span>
+          <select data-order-status="${esc(o.id)}" aria-label="Order status">
+            ${orderStatuses.map(s => `<option value="${s}"${o.status === s ? ' selected' : ''}>${s}</option>`).join('')}
+          </select>
+          <button data-order-detail="${esc(o.id)}">DETAILS</button>
+        </div>
+        <div class="order-detail" hidden>
+          <div><strong>${esc(o.discount_code || 'No code')}</strong> · Status: <strong>${esc(o.status || 'New')}</strong></div>
+          <ul>${items.map(i => `<li><span>${esc(i.name)} × ${Number(i.qty) || 1}</span><span>${money((Number(i.price) || 0) * (Number(i.qty) || 1))}</span></li>`).join('') || '<li>No items</li>'}</ul>
+          <div class="od-lines">
+            <span>SUBTOTAL <b>${money(o.subtotal)}</b></span>
+            <span>DISCOUNT <b>${money(o.discount)}</b></span>
+            <span>TOTAL <b>${money(o.total)}</b></span>
+          </div>
+        </div>
+      </div>`;
+    }).join('') : '<p class="admin-empty">No orders yet. Orders placed by members will appear here.</p>';
+  }
+
+  $('#orderList').addEventListener('click', e => {
+    const btn = e.target.closest('[data-order-detail]');
+    if (!btn) return;
+    const detail = btn.closest('.order-wrap')?.querySelector('.order-detail');
+    if (!detail) return;
+    detail.hidden = !detail.hidden;
+    btn.textContent = detail.hidden ? 'DETAILS' : 'HIDE';
+  });
+  $('#orderList').addEventListener('change', async e => {
+    const sel = e.target.closest('[data-order-status]');
+    if (!sel) return;
+    const { error } = await sb(`${REST}/orders?id=eq.${encodeURIComponent(sel.dataset.orderStatus)}`, {
+      method: 'PATCH', token: sbSession.access_token, prefer: 'return=minimal',
+      body: { status: sel.value }
+    });
+    if (error) {
+      showToast('Status update failed: ' + error);
+      renderAdminOrders();
+    } else showToast('Order status updated.');
+  });
+  $('#orderReload').addEventListener('click', () => loadStoreData());
+  $('#adReload').addEventListener('click', () => loadStoreData());
+  $('#adGoOrders').addEventListener('click', () => switchAdminTab('orders'));
+
+  /* ---------- admin: categories ---------- */
+  function resetCategoryForm() {
+    $('#categoryForm').reset();
+    $('#cEditId').value = '';
+    $('#cId').disabled = false;
+    $('#cActive').checked = true;
+    $('#cCancelBtn').hidden = true;
+    adminStatus('#cStatus', '');
+  }
+
+  function renderAdminCategories() {
+    const list = storeData.allCategories.length ? storeData.allCategories : storeData.categories;
+    $('#categoryCount').textContent = list.length;
+    $('#categoryList').innerHTML = list.length ? list.map(c => `
+      <div class="admin-item ${c.active ? '' : 'inactive'}">
+        <img src="${esc(c.img || 'images/creatine.png')}" alt="">
+        <div class="ai-info">
+          <strong>${esc(c.label)}</strong>
+          <span>${esc(c.id)} · sort ${Number(c.sort) || 0}${c.active ? '' : ' · HIDDEN'}</span>
+        </div>
+        <div class="ai-actions">
+          <button data-edit-cat="${esc(c.id)}">EDIT</button>
+          <button class="danger" data-delete-cat="${esc(c.id)}">DELETE</button>
+        </div>
+      </div>`).join('') : '<p class="admin-empty">No categories yet.</p>';
+  }
+
+  $('#cCancelBtn').addEventListener('click', resetCategoryForm);
+  $('#categoryForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const editId = $('#cEditId').value;
+    const id = (editId || $('#cId').value.trim()).toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const label = $('#cLabel').value.trim();
+    if (!id || !label) return adminStatus('#cStatus', 'Category ID and label are required.', true);
+    adminStatus('#cStatus', 'Saving…');
+    const { error } = await sb(`${REST}/categories${editId ? '?id=eq.' + encodeURIComponent(editId) : ''}`, {
+      method: editId ? 'PATCH' : 'POST', token: sbSession.access_token,
+      prefer: 'return=minimal',
+      body: {
+        id, label, img: $('#cImg').value.trim(),
+        active: $('#cActive').checked,
+        sort: parseInt($('#cSort').value, 10) || 0
+      }
+    });
+    if (error) return adminStatus('#cStatus', error, true);
+    adminStatus('#cStatus', editId ? 'Category updated.' : 'Category added.');
+    resetCategoryForm();
+    await loadStoreData();
+    showToast('Category saved ✅');
+  });
+
+  $('#categoryList').addEventListener('click', async e => {
+    const edit = e.target.closest('[data-edit-cat]')?.dataset.editCat;
+    const del = e.target.closest('[data-delete-cat]')?.dataset.deleteCat;
+    if (edit) {
+      const c = [...storeData.allCategories, ...storeData.categories].find(x => x.id === edit);
+      if (!c) return;
+      $('#cEditId').value = c.id;
+      $('#cId').value = c.id;
+      $('#cId').disabled = true;
+      $('#cLabel').value = c.label;
+      $('#cImg').value = c.img || '';
+      $('#cSort').value = c.sort ?? 0;
+      $('#cActive').checked = c.active !== false;
+      $('#cCancelBtn').hidden = false;
+      adminStatus('#cStatus', `Editing category “${c.id}”.`);
+      return;
+    }
+    if (del && confirm(`Delete category “${del}”?`)) {
+      const { error } = await sb(`${REST}/categories?id=eq.${encodeURIComponent(del)}`, {
+        method: 'DELETE', token: sbSession.access_token, prefer: 'return=minimal'
+      });
+      if (error) return showToast('Delete failed: ' + error);
+      showToast('Category deleted.');
+      await loadStoreData();
+    }
+  });
+
+  /* ---------- admin: site text ---------- */
+  function populateSiteForm() {
+    const t = storeData.siteText;
+    $('#sHeroTitle').value = t.heroTitle || '';
+    $('#sHeroSub').value = t.heroSub || '';
+    $('#sPromoText').value = t.promoText || '';
+    $('#sNewsTitle').value = t.newsTitle || '';
+    $('#sNewsText').value = t.newsText || '';
+  }
+
+  $('#siteForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const rows = [
+      { key: 'heroTitle', value: $('#sHeroTitle').value },
+      { key: 'heroSub', value: $('#sHeroSub').value },
+      { key: 'promoText', value: $('#sPromoText').value },
+      { key: 'newsTitle', value: $('#sNewsTitle').value },
+      { key: 'newsText', value: $('#sNewsText').value }
+    ];
+    adminStatus('#sStatus', 'Saving…');
+    const { error } = await sb(`${REST}/site_text`, {
+      method: 'POST', token: sbSession.access_token,
+      prefer: 'resolution=merge-duplicates,return=minimal', body: rows
+    });
+    if (error) return adminStatus('#sStatus', error, true);
+    adminStatus('#sStatus', 'Site text updated.');
+    await loadStoreData();
+    showToast('Site text updated ✅');
   });
 
   /* ---------- restore session ---------- */
@@ -548,4 +1227,7 @@
     });
   }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
   $$('.reveal').forEach(el => io.observe(el));
+
+  /* load shared store data last, after all UI handlers are ready */
+  loadStoreData();
 })();
