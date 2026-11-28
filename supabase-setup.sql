@@ -32,6 +32,18 @@ create policy "products admin write" on public.products for all using (public.is
 grant select on public.products to anon, authenticated;
 grant all on public.products to authenticated;
 
+-- Seed the current storefront products so they are editable from day one
+insert into public.products (id, name, brand, category, price, img, tag, description, sort) values
+  ('p1', 'Micronised Creatine Monohydrate Powder', 'OPTIMUM NUTRITION', 'creatine', 34.99, 'images/creatine.png', 'BESTSELLER', 'Micronised creatine monohydrate 634g.', 1),
+  ('p2', 'ABE All Black Everything Pre-Workout', 'APPLIED NUTRITION', 'preworkout', 39.99, 'images/abe.webp', 'NEW', 'High-stimulant pre-workout for focus and pumps.', 2),
+  ('p3', 'Vitamin D3 4000 IU Softgels — 120 caps', 'OSTROVIT', 'vitamins', 16.99, 'images/d3.png', '-27%', 'Vitamin D3 4000 IU, 120 softgels.', 3),
+  ('p4', 'Superset Maximum Pump Pre-Workout', 'BEYOND YOURSELF', 'preworkout', 36.99, 'images/superset.webp', '', 'Blue Freeze maximum pump pre-workout.', 4),
+  ('p5', 'Oméga 3 Fish Oil — 660mg EPA / 440mg DHA', 'WEIGHTWORLD', 'health', 24.99, 'images/omega.jpg', 'TOP RATED', 'Omega 3 fish oil, 240 capsules.', 5),
+  ('p6', 'Zinc Picolinate 15mg — 150 tablets', 'OSTROVIT', 'vitamins', 14.99, 'images/zinc.png', '', 'Zinc picolinate 15mg, 150 tablets.', 6),
+  ('p7', 'Bisglycinate de Fer — 28mg, 400 tablets', 'WEIGHTWORLD', 'vitamins', 19.99, 'images/iron.jpg', '', 'Iron bisglycinate 28mg, 400 tablets.', 7),
+  ('p8', 'Creatine Monohydrate 500g — Unflavoured', 'OSTROVIT', 'creatine', 24.99, 'images/stack.png', '-18%', 'OstroVit creatine monohydrate 500g.', 8)
+on conflict (id) do nothing;
+
 -- ---------- DISCOUNTS ----------
 create table if not exists public.discounts (
   code text primary key,
